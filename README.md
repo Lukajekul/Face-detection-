@@ -12,14 +12,19 @@ C:\Face>faceenv\Scripts\activate
 ### Libraries
 
 using mediapipe, deepface, and Opencv 
-installation:
+
+### requirements 
+
+requirements are found in the requirements.txt
+
+Save requirements
 ```
 CMD
-pip install numpy==1.24.4
-pip install opencv-python==4.8.0.76
-pip install mediapipe==0.10.11
-pip install tensorflow==2.11.0
-pip install deepface==0.0.93
-pip install protobuf==3.20.3
-pip uninstall jax jaxlib -y
+(faceenv) C:\Face>pip freeze > requirements.txt
+```
+
+Paste requirements
+```
+CMD
+(faceenv) C:\Face>pip install -r requirements.txt
 ```
