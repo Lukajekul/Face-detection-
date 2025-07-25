@@ -3,11 +3,10 @@ from deepface import DeepFace
 import cv2
 import threading
 import queue
-import time
-
 
 shared_detection = queue.Queue()
 shared_image = queue.Queue()
+shared_face = queue.Queue()
 
 def face_tracking():
     mp_face_detection = mp.solutions.face_detection
@@ -16,51 +15,53 @@ def face_tracking():
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    with mp_face_detection.FaceDetection(
-        model_selection=1, min_detection_confidence=0.5) as face_detection:
+
+    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
         while cap.isOpened():
             success, image = cap.read()
             if not success:
-                print("Ignoring empty camera frame.")
-            # If loading a video, use 'break' instead of 'continue'.
                 continue
 
-            # To improve performance, optionally mark the image as not writeable to
-            # pass by reference.
             image.flags.writeable = False
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = face_detection.process(image)
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = face_detection.process(image_rgb)
 
-            # Draw the face detection annotations on the image.
             image.flags.writeable = True
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
             if results.detections:
                 for detection in results.detections:
-                    mp_drawing.draw_detection(image, detection)
-                    
+                    bbox = detection.location_data.relative_bounding_box
+                    ih, iw, _ = image.shape
+                    x = int(bbox.xmin * iw)
+                    y = int(bbox.ymin * ih)
+                    w = int(bbox.width * iw)
+                    h = int(bbox.height * ih)
+
+                    # Draw box
+                    cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                    # If emotion available, draw text
+                    if not shared_face.empty():
+                        feeling = shared_face.get()
+                        cv2.putText(image, feeling, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                    # Share data for analysis
                     shared_detection.put(detection)
                     shared_image.put(image.copy())
 
-
-
-
-
-
-
-
-
-            # Flip the image horizontally for a selfie-view display.
-            cv2.imshow('MediaPipe Face Detection', cv2.flip(image, 1))
-
-
+            # Show flipped image
+            cv2.imshow('Face Detection + Emotion', cv2.flip(image, 1))
             if cv2.waitKey(5) & 0xFF == 27:
                 break
+
     cap.release()
+    cv2.destroyAllWindows()
 
 def head_emotion():
     while True:
         detection = shared_detection.get()
-        image= shared_image.get()
+        image = shared_image.get()
+
         bbox = detection.location_data.relative_bounding_box
         ih, iw, _ = image.shape
         x = int(bbox.xmin * iw)
@@ -68,25 +69,28 @@ def head_emotion():
         w = int(bbox.width * iw)
         h = int(bbox.height * ih)
 
-        # Crop the face from the frame
+        # Crop and analyze
         x1, y1 = max(0, x), max(0, y)
         x2, y2 = min(iw, x + w), min(ih, y + h)
         cropped_face = image[y1:y2, x1:x2]
 
-        cropped_face = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
-        details = DeepFace.analyze(cropped_face, actions=["age", "gender", "race", "emotion"], enforce_detection=False)
+        try:
+            cropped_face_rgb = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
+            details = DeepFace.analyze(cropped_face_rgb, actions=["emotion"], enforce_detection=False)
+            feeling = details["dominant_emotion"]
+        except:
+            feeling = "Unknown"
 
-        print(details)
+        shared_face.put(feeling)
 
-
-
-
-
+# Start threads
 t1 = threading.Thread(target=face_tracking)
 t2 = threading.Thread(target=head_emotion)
 
-t1.deamon = True
-t2.deamon = True
+t1.daemon = True
+t2.daemon = True
 
 t1.start()
 t2.start()
+
+t1.join()
